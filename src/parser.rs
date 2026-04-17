@@ -8,9 +8,11 @@ use crate::extractor::trait_finder::find_trait;
 use crate::formatter::{format_function_body, format_item};
 use crate::output::Output;
 use anyhow::{Context, Result};
+use proc_macro2::Span;
 use regex::{Captures, Regex};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{env, fs};
+use syn::spanned::Spanned;
 use syn::token::{Enum, Impl, Struct, Trait};
 use syn::{File, Item, ItemFn};
 
@@ -40,7 +42,7 @@ pub fn process_markdown(base_dir: &Path, source_path: &Path, content: &mut Strin
 
         // Process the directive with include_doc_macro
         match process_include_rs_directive(base_dir, include_doc_directive) {
-            Ok(processed) => processed,
+            Ok((processed, _, _)) => processed,
             Err(e) => {
                 let rel_path = get_relative_path(source_path);
                 eprintln!("{}:{}:{}: {}", rel_path, line_num, col_num, e);
@@ -51,6 +53,53 @@ pub fn process_markdown(base_dir: &Path, source_path: &Path, content: &mut Strin
 
     *content = result.to_string();
     Ok(())
+}
+
+pub fn process_directives(
+    base_dir: &Path,
+    source_path: &Path,
+    content: &mut String,
+) -> Result<Vec<(PathBuf, Option<Span>)>> {
+    // This regex finds our directives anywhere in the content
+    let re = Regex::new(
+        r"(?ms)^#!\[((?:source_file|function|struct|enum|trait|impl|trait_impl|function_body)![\s\S]*?)\]$",
+    )?;
+
+    // Track the start position of each line to calculate line numbers
+    let mut line_positions = Vec::new();
+    let mut pos = 0;
+    for line in content.lines() {
+        line_positions.push(pos);
+        pos += line.len() + 1; // +1 for the newline character
+    }
+
+    let mut spans = Vec::new();
+
+    for caps in re.captures_iter(content) {
+        let include_doc_directive = caps.get(1).map_or("", |m| m.as_str());
+
+        // Get match position information
+        let match_start = caps.get(0).map_or(0, |m| m.start());
+
+        // Find line number and column based on position
+        let (line_num, col_num) = find_line_and_col(&line_positions, match_start);
+
+        // Process the directive with include_doc_macro
+        match process_include_rs_directive(base_dir, include_doc_directive) {
+            Ok((_, path, span)) => {
+                if let Some(path) = path {
+                    spans.push((path, span));
+                }
+            }
+            Err(e) => {
+                let rel_path = get_relative_path(source_path);
+                eprintln!("{}:{}:{}: {}", rel_path, line_num, col_num, e);
+                continue;
+            }
+        }
+    }
+
+    Ok(spans)
 }
 
 /// Find line and column number from a position in the text
@@ -91,18 +140,23 @@ pub(crate) fn get_relative_path(path: &Path) -> String {
 }
 
 /// Process an include-rs directive
-fn process_include_rs_directive(base_dir: &Path, directive: &str) -> Result<String> {
+fn process_include_rs_directive(
+    base_dir: &Path,
+    directive: &str,
+) -> Result<(String, Option<PathBuf>, Option<Span>)> {
     // Parse the directive name
     let directive_name = if let Some(pos) = directive.find('!') {
         &directive[0..pos]
     } else {
         // Not a recognized directive format
-        return Ok(directive.to_string());
+        return Ok((directive.to_string(), None, None));
     };
 
     // Process the directive based on its type
-    let result = match directive_name {
-        "source_file" => process_source_file_directive(base_dir, directive)?,
+    let (result, path, span) = match directive_name {
+        "source_file" => {
+            process_source_file_directive(base_dir, directive).map(|(a, b)| (a, b, None))?
+        }
         "function_body" => process_directive::<ItemFn>(
             base_dir,
             directive,
@@ -158,21 +212,21 @@ fn process_include_rs_directive(base_dir: &Path, directive: &str) -> Result<Stri
         )?,
         _ => {
             // Not a recognized directive
-            return Ok(directive.to_string());
+            return Ok((directive.to_string(), None, None));
         }
     };
 
     // Format the result as a Rust code block
-    Ok(result.trim().to_string())
+    Ok((result.trim().to_string(), Some(path), span))
 }
 
 /// Process source_file! directive
-fn process_source_file_directive(base_dir: &Path, directive: &str) -> Result<String> {
+fn process_source_file_directive(base_dir: &Path, directive: &str) -> Result<(String, PathBuf)> {
     let directive = parse_directive_args(directive)?;
     let absolute_path = base_dir.join(directive.file_path);
     let content = fs::read_to_string(&absolute_path)
         .with_context(|| format!("Failed to read file: {}", get_relative_path(&absolute_path)))?;
-    Ok(content)
+    Ok((content, absolute_path))
 }
 
 /// Helper function to process extra items
@@ -247,7 +301,7 @@ fn process_directive<T>(
     directive: &str,
     finder: impl Fn(&File, &str) -> Option<Item>,
     formatter: impl Fn(&Item) -> String,
-) -> Result<String> {
+) -> Result<(String, PathBuf, Option<Span>)> {
     let directive = parse_directive_args(directive)?;
     if directive.item.is_none() {
         return Err(anyhow::anyhow!(
@@ -270,5 +324,5 @@ fn process_directive<T>(
     }
 
     result.add_visible_content(formatter(&item));
-    Ok(result.format())
+    Ok((result.format(), absolute_path, Some(item.span())))
 }

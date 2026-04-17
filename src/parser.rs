@@ -58,7 +58,7 @@ pub fn process_markdown(base_dir: &Path, source_path: &Path, content: &mut Strin
 pub fn process_directives(
     base_dir: &Path,
     source_path: &Path,
-    content: &mut String,
+    content: &str,
 ) -> Result<Vec<(PathBuf, Option<Span>)>> {
     // This regex finds our directives anywhere in the content
     let re = Regex::new(

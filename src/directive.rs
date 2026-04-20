@@ -7,11 +7,11 @@ pub(crate) struct Directive {
     pub(crate) extra_items: Vec<String>,
 }
 
-/// Parse directive arguments (file path, item name, optional dependencies)
 pub(crate) fn parse_directive_args(directive: &str) -> anyhow::Result<Directive> {
     // Basic regex to parse directive: directive_name!("path/to/file.rs", item_name, [deps...])
-    let re =
-        Regex::new(r#"([a-z_]+)!\s*\(\s*"([^"]+)"\s*(?:,\s*([^,\[\]]+))?(?:,\s*\[(.*)\])?\s*\)"#)?;
+    let re = Regex::new(
+        r#"([a-z_]+)!\s*\(\s*"([^"]+)"\s*(?:,\s*([^\[\]]+?))?\s*(?:,\s*\[(.*)\])?\s*\)"#,
+    )?;
 
     let captures = re
         .captures(directive)
@@ -30,6 +30,7 @@ pub(crate) fn parse_directive_args(directive: &str) -> anyhow::Result<Directive>
             m.as_str()
                 .split(',')
                 .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
                 .collect()
         })
         .unwrap_or_default();

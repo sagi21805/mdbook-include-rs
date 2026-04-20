@@ -114,3 +114,61 @@ impl<'ast> Visit<'ast> for TraitImplFinder {
         visit::visit_item_impl(self, item_impl);
     }
 }
+
+/// Find a specific method inside a struct's inherent impl block.
+pub(crate) fn find_impl_method(
+    parsed_file: &File,
+    struct_name: &str,
+    method_name: &str,
+) -> Option<syn::ImplItemFn> {
+    let mut finder = ImplMethodFinder::new(struct_name, method_name);
+    finder.visit_file(parsed_file);
+    finder.method
+}
+
+struct ImplMethodFinder {
+    struct_name: String,
+    method_name: String,
+    method: Option<syn::ImplItemFn>,
+}
+
+impl ImplMethodFinder {
+    fn new(struct_name: &str, method_name: &str) -> Self {
+        Self {
+            struct_name: struct_name.to_string(),
+            method_name: method_name.to_string(),
+            method: None,
+        }
+    }
+}
+
+impl<'ast> Visit<'ast> for ImplMethodFinder {
+    fn visit_item_impl(&mut self, item_impl: &'ast ItemImpl) {
+        if item_impl.trait_.is_none() {
+            if let Some(path) = (|ty: &Type| {
+                if let Type::Path(tp) = ty {
+                    Some(tp.path.clone())
+                } else {
+                    None
+                }
+            })(&item_impl.self_ty)
+            {
+                if path
+                    .segments
+                    .last()
+                    .is_some_and(|s| s.ident == self.struct_name)
+                {
+                    for impl_item in &item_impl.items {
+                        if let syn::ImplItem::Fn(method) = impl_item {
+                            if method.sig.ident == self.method_name {
+                                self.method = Some(method.clone());
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        visit::visit_item_impl(self, item_impl);
+    }
+}

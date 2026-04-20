@@ -1,7 +1,7 @@
 use crate::directive::parse_directive_args;
 use crate::extractor::enum_finder::find_enum;
 use crate::extractor::function_extractor::find_function;
-use crate::extractor::impl_finder::{find_struct_impl, find_trait_impl};
+use crate::extractor::impl_finder::{find_impl_method, find_struct_impl, find_trait_impl};
 use crate::extractor::read_and_parse_file;
 use crate::extractor::struct_finder::find_struct;
 use crate::extractor::trait_finder::find_trait;
@@ -14,14 +14,14 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 use syn::spanned::Spanned;
 use syn::token::{Enum, Impl, Struct, Trait};
-use syn::{File, Item, ItemFn};
+use syn::{File, ImplItemFn, Item, ItemFn};
+
+const DIRECTIVE_REGEX: &str = r"(?ms)^#!\[((?:source_file|function|struct|enum|trait|impl|impl_method|trait_impl|function_body)![\s\S]*?)\]$";
 
 /// Process the markdown content to find and replace include-rs directives
 pub fn process_markdown(base_dir: &Path, source_path: &Path, content: &mut String) -> Result<()> {
     // This regex finds our directives anywhere in the content
-    let re = Regex::new(
-        r"(?ms)^#!\[((?:source_file|function|struct|enum|trait|impl|trait_impl|function_body)![\s\S]*?)\]$",
-    )?;
+    let re = Regex::new(DIRECTIVE_REGEX)?;
 
     // Track the start position of each line to calculate line numbers
     let mut line_positions = Vec::new();
@@ -61,9 +61,7 @@ pub fn process_directives(
     content: &str,
 ) -> Result<Vec<(PathBuf, Option<Span>)>> {
     // This regex finds our directives anywhere in the content
-    let re = Regex::new(
-        r"(?ms)^#!\[((?:source_file|function|struct|enum|trait|impl|trait_impl|function_body)![\s\S]*?)\]$",
-    )?;
+    let re = Regex::new(DIRECTIVE_REGEX)?;
 
     // Track the start position of each line to calculate line numbers
     let mut line_positions = Vec::new();
@@ -209,6 +207,42 @@ fn process_include_rs_directive(
             directive,
             |f, n| Some(Item::Fn(find_function(f, n)?)),
             format_item,
+        )?,
+        "impl_method" => process_directive::<ImplItemFn>(
+            base_dir,
+            directive,
+            |f, n| {
+                let (struct_name, method_name) = n.split_once("::")?;
+                let method = find_impl_method(f, struct_name.trim(), method_name.trim())?;
+                Some(Item::Impl(syn::ItemImpl {
+                    attrs: vec![],
+                    defaultness: None,
+                    unsafety: None,
+                    impl_token: Default::default(),
+                    generics: Default::default(),
+                    trait_: None,
+                    self_ty: Box::new(
+                        syn::parse_str(struct_name.trim())
+                            .expect("struct name should be a valid type"),
+                    ),
+                    brace_token: Default::default(),
+                    items: vec![syn::ImplItem::Fn(method)],
+                }))
+            },
+            |item| {
+                // The outer ItemImpl is synthetic and has no source text.
+                // The ImplItemFn inside was parsed from a real file, so its
+                // span is valid.
+                if let Item::Impl(impl_item) = item {
+                    if let Some(syn::ImplItem::Fn(method)) = impl_item.items.first() {
+                        return method
+                            .span()
+                            .source_text()
+                            .expect("Failed to get source text for impl method");
+                    }
+                }
+                format_item(item)
+            },
         )?,
         _ => {
             // Not a recognized directive

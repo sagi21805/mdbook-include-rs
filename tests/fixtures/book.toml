@@ -4,3 +4,4 @@ authors = ["Test Author"]
 src = "src"
 
 [preprocessor.include-rs]
+command = "cargo run --release --manifest-path=../../Cargo.toml"

@@ -235,10 +235,12 @@ fn process_include_rs_directive(
                 // span is valid.
                 if let Item::Impl(impl_item) = item {
                     if let Some(syn::ImplItem::Fn(method)) = impl_item.items.first() {
-                        return method
+                        let text = method
                             .span()
                             .source_text()
                             .expect("Failed to get source text for impl method");
+                        let indent = " ".repeat(method.span().start().column);
+                        return format!("{indent}{text}");
                     }
                 }
                 format_item(item)

@@ -213,52 +213,48 @@ fn process_include_rs_directive(
         )
         .map(|(s, p, v)| (s, Some(p), v))?,
 
-        "impl_method" => process_directive::<ImplItemFn>(
+        "impl_method" => process_directive::<Impl>(
             base_dir,
             directive,
             |f, n| {
-                let (struct_name, method_name) = n.split_once("::")?;
+                let (struct_name, methods_raw) = n.split_once("::")?;
                 let struct_name = struct_name.trim();
-                let method_name = method_name.trim();
+
+                let method_names: Vec<&str> = methods_raw
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .collect();
 
                 let item_impl = find_struct_impl(f, struct_name)?;
-                let method = find_impl_method(f, struct_name, method_name)?;
+
+                let mut spans = Vec::new();
 
                 let impl_header_span = item_impl
                     .impl_token
                     .span()
                     .join(item_impl.brace_token.span.open())
                     .unwrap_or_else(|| item_impl.impl_token.span());
+                spans.push(impl_header_span);
 
-                let method_span = method.span();
-                let closing_brace_span = item_impl.brace_token.span.close();
-
-                let item = Item::Fn(syn::ItemFn {
-                    attrs: method.attrs.clone(),
-                    vis: method.vis.clone(),
-                    sig: method.sig.clone(),
-                    block: Box::new(method.block.clone()),
-                });
-
-                Some((
-                    item,
-                    vec![impl_header_span, method_span, closing_brace_span],
-                ))
-            },
-            |item| {
-                if let Item::Fn(method) = item {
-                    let text = method
-                        .span()
-                        .source_text()
-                        .expect("Failed to get source text");
-                    let indent = " ".repeat(method.span().start().column);
-                    return format!("{indent}{text}");
+                let mut filtered_items = Vec::new();
+                for name in method_names {
+                    if let Some(method) = find_impl_method(f, struct_name, name) {
+                        spans.push(method.span());
+                        filtered_items.push(syn::ImplItem::Fn(method.clone()));
+                    }
                 }
-                format_item(item)
+
+                spans.push(item_impl.brace_token.span.close());
+
+                let mut new_impl = item_impl.clone();
+                new_impl.items = filtered_items;
+
+                Some((Item::Impl(new_impl), spans))
             },
+            format_item,
         )
         .map(|(s, p, v)| (s, Some(p), v))?,
-
         _ => return Ok((directive.to_string(), None, Vec::new())),
     };
 

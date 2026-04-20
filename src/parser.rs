@@ -59,34 +59,28 @@ pub fn process_directives(
     base_dir: &Path,
     source_path: &Path,
     content: &str,
-) -> Result<Vec<(PathBuf, Option<Span>)>> {
-    // This regex finds our directives anywhere in the content
+) -> Result<Vec<(PathBuf, Vec<Span>)>> {
+    // Changed return type to Vec<Span>
     let re = Regex::new(DIRECTIVE_REGEX)?;
 
-    // Track the start position of each line to calculate line numbers
     let mut line_positions = Vec::new();
     let mut pos = 0;
     for line in content.lines() {
         line_positions.push(pos);
-        pos += line.len() + 1; // +1 for the newline character
+        pos += line.len() + 1;
     }
 
-    let mut spans = Vec::new();
+    let mut spans_by_path = Vec::new();
 
     for caps in re.captures_iter(content) {
         let include_doc_directive = caps.get(1).map_or("", |m| m.as_str());
-
-        // Get match position information
         let match_start = caps.get(0).map_or(0, |m| m.start());
-
-        // Find line number and column based on position
         let (line_num, col_num) = find_line_and_col(&line_positions, match_start);
 
-        // Process the directive with include_doc_macro
         match process_include_rs_directive(base_dir, include_doc_directive) {
-            Ok((_, path, span)) => {
+            Ok((_, path, spans)) => {
                 if let Some(path) = path {
-                    spans.push((path, span));
+                    spans_by_path.push((path, spans));
                 }
             }
             Err(e) => {
@@ -97,7 +91,7 @@ pub fn process_directives(
         }
     }
 
-    Ok(spans)
+    Ok(spans_by_path)
 }
 
 /// Find line and column number from a position in the text
@@ -141,109 +135,134 @@ pub(crate) fn get_relative_path(path: &Path) -> String {
 fn process_include_rs_directive(
     base_dir: &Path,
     directive: &str,
-) -> Result<(String, Option<PathBuf>, Option<Span>)> {
-    // Parse the directive name
+) -> Result<(String, Option<PathBuf>, Vec<Span>)> {
+    // Returns Option<PathBuf>
     let directive_name = if let Some(pos) = directive.find('!') {
         &directive[0..pos]
     } else {
-        // Not a recognized directive format
-        return Ok((directive.to_string(), None, None));
+        return Ok((directive.to_string(), None, Vec::new()));
     };
 
-    // Process the directive based on its type
-    let (result, path, span) = match directive_name {
+    let (result, path, spans) = match directive_name {
         "source_file" => {
-            process_source_file_directive(base_dir, directive).map(|(a, b)| (a, b, None))?
+            let (content, path) = process_source_file_directive(base_dir, directive)?;
+            (content, Some(path), Vec::<Span>::new()) // Added explicit type hint
         }
         "function_body" => process_directive::<ItemFn>(
             base_dir,
             directive,
-            |f, n| Some(Item::Fn(find_function(f, n)?)),
+            |f, n| find_function(f, n).map(|item| (Item::Fn(item), Vec::new())),
             format_function_body,
-        )?,
+        )
+        .map(|(s, p, v)| (s, Some(p), v))?, // Wrap path in Some
+
         "struct" => process_directive::<Struct>(
             base_dir,
             directive,
-            |f, n| Some(Item::Struct(find_struct(f, n)?)),
+            |f, n| find_struct(f, n).map(|item| (Item::Struct(item), Vec::new())),
             format_item,
-        )?,
+        )
+        .map(|(s, p, v)| (s, Some(p), v))?,
+
         "enum" => process_directive::<Enum>(
             base_dir,
             directive,
-            |f, n| Some(Item::Enum(find_enum(f, n)?)),
+            |f, n| find_enum(f, n).map(|item| (Item::Enum(item), Vec::new())),
             format_item,
-        )?,
+        )
+        .map(|(s, p, v)| (s, Some(p), v))?,
+
         "trait" => process_directive::<Trait>(
             base_dir,
             directive,
-            |f, n| Some(Item::Trait(find_trait(f, n)?)),
+            |f, n| find_trait(f, n).map(|item| (Item::Trait(item), Vec::new())),
             format_item,
-        )?,
+        )
+        .map(|(s, p, v)| (s, Some(p), v))?,
+
         "impl" => process_directive::<Impl>(
             base_dir,
             directive,
-            |f, n| Some(Item::Impl(find_struct_impl(f, n)?)),
+            |f, n| find_struct_impl(f, n).map(|item| (Item::Impl(item), Vec::new())),
             format_item,
-        )?,
+        )
+        .map(|(s, p, v)| (s, Some(p), v))?,
+
         "trait_impl" => process_directive::<Impl>(
             base_dir,
             directive,
             |f, n| {
-                // For trait_impl, the item_name should have the format "TraitName for StructName"
                 let parts: Vec<&str> = n.split(" for ").collect();
                 if parts.len() != 2 {
                     return None;
                 }
-
                 let trait_name = parts[0].trim();
                 let struct_name = parts[1].trim();
-
-                Some(Item::Impl(find_trait_impl(f, trait_name, struct_name)?))
+                find_trait_impl(f, trait_name, struct_name)
+                    .map(|item| (Item::Impl(item), Vec::new()))
             },
             format_item,
-        )?,
+        )
+        .map(|(s, p, v)| (s, Some(p), v))?,
+
         "function" => process_directive::<ItemFn>(
             base_dir,
             directive,
-            |f, n| Some(Item::Fn(find_function(f, n)?)),
+            |f, n| find_function(f, n).map(|item| (Item::Fn(item), Vec::new())),
             format_item,
-        )?,
+        )
+        .map(|(s, p, v)| (s, Some(p), v))?,
+
         "impl_method" => process_directive::<ImplItemFn>(
             base_dir,
             directive,
             |f, n| {
                 let (struct_name, method_name) = n.split_once("::")?;
-                let method = find_impl_method(f, struct_name.trim(), method_name.trim())?;
-                Some(Item::Fn(syn::ItemFn {
+                let struct_name = struct_name.trim();
+                let method_name = method_name.trim();
+
+                let item_impl = find_struct_impl(f, struct_name)?;
+                let method = find_impl_method(f, struct_name, method_name)?;
+
+                let impl_header_span = item_impl
+                    .impl_token
+                    .span()
+                    .join(item_impl.brace_token.span.open())
+                    .unwrap_or_else(|| item_impl.impl_token.span());
+
+                let method_span = method.span();
+                let closing_brace_span = item_impl.brace_token.span.close();
+
+                let item = Item::Fn(syn::ItemFn {
                     attrs: method.attrs.clone(),
                     vis: method.vis.clone(),
                     sig: method.sig.clone(),
                     block: Box::new(method.block.clone()),
-                }))
+                });
+
+                Some((
+                    item,
+                    vec![impl_header_span, method_span, closing_brace_span],
+                ))
             },
             |item| {
-                // The outer ItemImpl is synthetic and has no source text.
-                // The ImplItemFn inside was parsed from a real file, so its
-                // span is valid.
                 if let Item::Fn(method) = item {
                     let text = method
                         .span()
                         .source_text()
-                        .expect("Failed to get source text for impl method");
+                        .expect("Failed to get source text");
                     let indent = " ".repeat(method.span().start().column);
                     return format!("{indent}{text}");
                 }
                 format_item(item)
             },
-        )?,
-        _ => {
-            // Not a recognized directive
-            return Ok((directive.to_string(), None, None));
-        }
+        )
+        .map(|(s, p, v)| (s, Some(p), v))?,
+
+        _ => return Ok((directive.to_string(), None, Vec::new())),
     };
 
-    // Format the result as a Rust code block
-    Ok((result.trim().to_string(), Some(path), span))
+    Ok((result.trim().to_string(), path, spans))
 }
 
 /// Process source_file! directive
@@ -325,31 +344,37 @@ fn process_extra(
 fn process_directive<T>(
     base_dir: &Path,
     directive: &str,
-    finder: impl Fn(&File, &str) -> Option<Item>,
+    finder: impl Fn(&File, &str) -> Option<(Item, Vec<Span>)>,
     formatter: impl Fn(&Item) -> String,
-) -> Result<(String, PathBuf, Option<Span>)> {
+) -> Result<(String, PathBuf, Vec<Span>)> {
     let directive = parse_directive_args(directive)?;
-    if directive.item.is_none() {
-        return Err(anyhow::anyhow!(
-            "{} name is required",
-            std::any::type_name::<T>()
-        ));
-    }
+    let item_name = directive
+        .item
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("{} name is required", std::any::type_name::<T>()))?;
+
     let absolute_path = base_dir.join(directive.file_path);
     let parsed_file = read_and_parse_file(&absolute_path)?;
-    let item_name = directive.item.as_ref().expect("item name is required");
-    let item = finder(&parsed_file, item_name)
+
+    let (item, mut result_spans) = finder(&parsed_file, item_name)
         .with_context(|| format!("{} '{}' not found", std::any::type_name::<T>(), item_name))?;
+
+    // If the finder didn't provide specific spans, use the item's own span
+    if result_spans.is_empty() {
+        result_spans.push(item.span());
+    }
+
     let (hidden_deps, visible_deps) = process_extra(&parsed_file, &item, &directive.extra_items);
     let mut result = Output::new();
+
     for dep in hidden_deps {
         result.add_hidden_content(format_item(&dep));
     }
     for dep in visible_deps {
         result.add_visible_content(format_item(&dep));
     }
-    eprintln!("{}", result.format().trim());
-    eprintln!("{:?}", (item.span().start(), item.span().end()));
+
     result.add_visible_content(formatter(&item));
-    Ok((result.format(), absolute_path, Some(item.span())))
+
+    Ok((result.format(), absolute_path, result_spans))
 }

@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 use syn::spanned::Spanned;
 use syn::token::{Enum, Impl, Struct, Trait};
-use syn::{File, ImplItemFn, Item, ItemFn};
+use syn::{File, ImplItemFn, Item, ItemFn, ItemImpl, Token};
 
 const DIRECTIVE_REGEX: &str = r"(?ms)^#!\[((?:source_file|function|struct|enum|trait|impl|impl_method|trait_impl|function_body)![\s\S]*?)\]$";
 
@@ -214,34 +214,24 @@ fn process_include_rs_directive(
             |f, n| {
                 let (struct_name, method_name) = n.split_once("::")?;
                 let method = find_impl_method(f, struct_name.trim(), method_name.trim())?;
-                Some(Item::Impl(syn::ItemImpl {
-                    attrs: vec![],
-                    defaultness: None,
-                    unsafety: None,
-                    impl_token: Default::default(),
-                    generics: Default::default(),
-                    trait_: None,
-                    self_ty: Box::new(
-                        syn::parse_str(struct_name.trim())
-                            .expect("struct name should be a valid type"),
-                    ),
-                    brace_token: Default::default(),
-                    items: vec![syn::ImplItem::Fn(method)],
+                Some(Item::Fn(syn::ItemFn {
+                    attrs: method.attrs.clone(),
+                    vis: method.vis.clone(),
+                    sig: method.sig.clone(),
+                    block: Box::new(method.block.clone()),
                 }))
             },
             |item| {
                 // The outer ItemImpl is synthetic and has no source text.
                 // The ImplItemFn inside was parsed from a real file, so its
                 // span is valid.
-                if let Item::Impl(impl_item) = item {
-                    if let Some(syn::ImplItem::Fn(method)) = impl_item.items.first() {
-                        let text = method
-                            .span()
-                            .source_text()
-                            .expect("Failed to get source text for impl method");
-                        let indent = " ".repeat(method.span().start().column);
-                        return format!("{indent}{text}");
-                    }
+                if let Item::Fn(method) = item {
+                    let text = method
+                        .span()
+                        .source_text()
+                        .expect("Failed to get source text for impl method");
+                    let indent = " ".repeat(method.span().start().column);
+                    return format!("{indent}{text}");
                 }
                 format_item(item)
             },
@@ -358,7 +348,8 @@ fn process_directive<T>(
     for dep in visible_deps {
         result.add_visible_content(format_item(&dep));
     }
-
+    eprintln!("{}", result.format().trim());
+    eprintln!("{:?}", (item.span().start(), item.span().end()));
     result.add_visible_content(formatter(&item));
     Ok((result.format(), absolute_path, Some(item.span())))
 }

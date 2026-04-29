@@ -3,6 +3,7 @@ use crate::extractor::enum_finder::find_enum;
 use crate::extractor::function_extractor::find_function;
 use crate::extractor::impl_finder::{find_impl_method, find_struct_impl, find_trait_impl};
 use crate::extractor::read_and_parse_file;
+use crate::extractor::static_finder::find_static;
 use crate::extractor::struct_finder::find_struct;
 use crate::extractor::trait_finder::find_trait;
 use crate::formatter::{format_function_body, format_item};
@@ -14,9 +15,9 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 use syn::spanned::Spanned;
 use syn::token::{Enum, Impl, Struct, Trait};
-use syn::{File, ImplItemFn, Item, ItemFn, ItemImpl, Token};
+use syn::{File, ImplItemFn, Item, ItemFn, ItemImpl, ItemStatic, Token};
 
-const DIRECTIVE_REGEX: &str = r"(?ms)^#!\[((?:source_file|function|struct|enum|trait|impl|impl_method|trait_impl|function_body)![\s\S]*?)\]$";
+const DIRECTIVE_REGEX: &str = r"(?ms)^#!\[((?:source_file|static|function|struct|enum|trait|impl|impl_method|trait_impl|function_body)![\s\S]*?)\]$";
 
 /// Process the markdown content to find and replace include-rs directives
 pub fn process_markdown(base_dir: &Path, source_path: &Path, content: &mut String) -> Result<()> {
@@ -148,6 +149,14 @@ fn process_include_rs_directive(
             let (content, path) = process_source_file_directive(base_dir, directive)?;
             (content, Some(path), Vec::<Span>::new()) // Added explicit type hint
         }
+        "static" => process_directive::<ItemStatic>(
+            base_dir,
+            directive,
+            |f, n| find_static(f, n).map(|item| (Item::Static(item), Vec::new())),
+            format_item,
+        )
+        .map(|(s, p, v)| (s, Some(p), v))?,
+
         "function_body" => process_directive::<ItemFn>(
             base_dir,
             directive,

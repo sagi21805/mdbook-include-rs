@@ -2,6 +2,8 @@ fn hello_world() {
     println!("Hello, world!");
 }
 
+static TEST_STATIC: usize = 0;
+
 struct TestStruct {
     name: String,
     value: i32,

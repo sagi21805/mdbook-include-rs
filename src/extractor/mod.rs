@@ -1,6 +1,7 @@
 pub(crate) mod enum_finder;
 pub(crate) mod function_extractor;
 pub(crate) mod impl_finder;
+pub(crate) mod static_finder;
 pub(crate) mod struct_finder;
 pub(crate) mod trait_finder;
 

@@ -13,3 +13,7 @@ This chapter demonstrates the function_body preprocessor:
 ```rust
 #![static!("test_file_book.rs", TEST_STATIC)]
 ```
+
+```rust
+#![const!("test_file_book.rs", TEST_CONST)]
+```

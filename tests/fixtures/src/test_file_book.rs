@@ -4,6 +4,8 @@ fn hello_world() {
 
 static TEST_STATIC: usize = 0;
 
+const TEST_CONST: usize = 0;
+
 struct TestStruct {
     name: String,
     value: i32,

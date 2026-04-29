@@ -1,3 +1,4 @@
+pub(crate) mod const_finder;
 pub(crate) mod enum_finder;
 pub(crate) mod function_extractor;
 pub(crate) mod impl_finder;

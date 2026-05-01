@@ -2,7 +2,7 @@ use crate::directive::parse_directive_args;
 use crate::extractor::const_finder::find_const;
 use crate::extractor::enum_finder::find_enum;
 use crate::extractor::function_extractor::find_function;
-use crate::extractor::impl_finder::{find_impl_method, find_struct_impl, find_trait_impl};
+use crate::extractor::impl_finder::{find_impl_methods, find_struct_impl, find_trait_impl};
 use crate::extractor::read_and_parse_file;
 use crate::extractor::static_finder::find_static;
 use crate::extractor::struct_finder::find_struct;
@@ -202,7 +202,7 @@ fn process_include_rs_directive(
         "impl" => process_directive::<Impl>(
             base_dir,
             directive,
-            |f, n| find_struct_impl(f, n).map(|item| (Item::Impl(item), Vec::new())),
+            |f, n| find_struct_impl(f, n).map(|item| (item.item(), Vec::new())),
             format_item,
         )
         .map(|(s, p, v)| (s, Some(p), v))?,
@@ -217,8 +217,9 @@ fn process_include_rs_directive(
                 }
                 let trait_name = parts[0].trim();
                 let struct_name = parts[1].trim();
-                find_trait_impl(f, trait_name, struct_name)
-                    .map(|item| (Item::Impl(item), Vec::new()))
+                let (items, spans) = find_trait_impl(f, trait_name, struct_name);
+                // TODO: good enough for book, but won't include all the currect string. The correct fix is to only use spans, and then at the end of processing include them directly from the file.
+                Some((items[0].clone().item(), spans))
             },
             format_item,
         )
@@ -247,29 +248,11 @@ fn process_include_rs_directive(
 
                 let item_impl = find_struct_impl(f, struct_name)?;
 
-                let mut spans = Vec::new();
+                let (_, spans) = find_impl_methods(f, struct_name, method_names);
 
-                let impl_header_span = item_impl
-                    .impl_token
-                    .span()
-                    .join(item_impl.brace_token.span.open())
-                    .unwrap_or_else(|| item_impl.impl_token.span());
-                spans.push(impl_header_span);
-
-                let mut filtered_items = Vec::new();
-                for name in method_names {
-                    if let Some(method) = find_impl_method(f, struct_name, name) {
-                        spans.push(method.span());
-                        filtered_items.push(syn::ImplItem::Fn(method.clone()));
-                    }
-                }
-
-                spans.push(item_impl.brace_token.span.close());
-
-                let mut new_impl = item_impl.clone();
-                new_impl.items = filtered_items;
-
-                Some((Item::Impl(new_impl), spans))
+                let new_impl = item_impl.clone();
+                // TODO: good enough for book, but won't include all the currect string. The correct fix is to only use spans, and then at the end of processing include them directly from the file.
+                Some((new_impl.item(), spans))
             },
             format_item,
         )
@@ -321,15 +304,16 @@ fn process_extra(
                 if parts.len() == 2 {
                     let trait_name = parts[0].trim();
                     let struct_name = parts[1].trim();
-                    if let Some(impl_def) = find_trait_impl(parsed_file, trait_name, struct_name) {
-                        visible.push(Item::Impl(impl_def));
+
+                    for impl_def in find_trait_impl(parsed_file, trait_name, struct_name).0 {
+                        visible.push(impl_def.item());
                     }
                 }
             } else {
                 // Struct implementation
                 let struct_name = item.trim_start_matches("impl ").trim();
                 if let Some(impl_def) = find_struct_impl(parsed_file, struct_name) {
-                    visible.push(Item::Impl(impl_def));
+                    visible.push(impl_def.item());
                 }
             }
         } else {

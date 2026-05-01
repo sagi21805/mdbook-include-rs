@@ -11,6 +11,15 @@ struct TestStruct {
     value: i32,
 }
 
+struct Testing<T> {
+    a: usize,
+    b: PhantomData<T>,
+}
+
+trait X<Z> {}
+
+impl<T, Z> X<Z> for Testing<T> {}
+
 impl TestStruct {
     fn new(name: &str, value: i32) -> Self {
         Self {

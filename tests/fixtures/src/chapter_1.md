@@ -7,6 +7,10 @@ This chapter demonstrates the function_body preprocessor:
 ```
 
 ```rust
+#![struct!("test_file_book.rs", Testing)]
+```
+
+```rust
 #![impl_method!("test_file_book.rs", TestStruct::new)]
 ```
 

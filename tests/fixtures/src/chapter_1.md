@@ -21,3 +21,7 @@ This chapter demonstrates the function_body preprocessor:
 ```rust
 #![const!("test_file_book.rs", TEST_CONST)]
 ```
+
+```rust
+#![trait!("test_file_book.rs", X)]
+```

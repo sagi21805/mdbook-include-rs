@@ -16,7 +16,7 @@ struct Testing<T> {
     b: PhantomData<T>,
 }
 
-trait X<Z> {}
+const trait X<Z> {}
 
 impl<T, Z> X<Z> for Testing<T> {}
 

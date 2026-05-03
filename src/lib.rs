@@ -1,4 +1,5 @@
 pub(crate) mod const_impl;
+pub(crate) mod const_trait;
 pub(crate) mod directive;
 pub(crate) mod extractor;
 pub(crate) mod formatter;

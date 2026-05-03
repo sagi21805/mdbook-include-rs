@@ -194,7 +194,7 @@ fn process_include_rs_directive(
         "trait" => process_directive::<Trait>(
             base_dir,
             directive,
-            |f, n| find_trait(f, n).map(|item| (Item::Trait(item), Vec::new())),
+            |f, n| find_trait(f, n).map(|item| (item.item(), Vec::new())),
             format_item,
         )
         .map(|(s, p, v)| (s, Some(p), v))?,
@@ -295,7 +295,7 @@ fn process_extra(
         } else if item.starts_with("trait ") {
             let trait_name = item.trim_start_matches("trait ").trim();
             if let Some(trait_def) = find_trait(parsed_file, trait_name) {
-                visible.push(Item::Trait(trait_def));
+                visible.push(trait_def.item());
             }
         } else if item.starts_with("impl ") {
             if item.contains(" for ") {

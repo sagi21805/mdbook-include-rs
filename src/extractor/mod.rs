@@ -7,6 +7,7 @@ pub(crate) mod struct_finder;
 pub(crate) mod trait_finder;
 
 use crate::parser::get_relative_path;
+use crate::permissive_file::parse_file_permissive;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
@@ -18,7 +19,7 @@ pub(crate) fn read_and_parse_file(file_path: &Path) -> Result<File> {
         .with_context(|| format!("Failed to read file: {}", get_relative_path(file_path)))?;
 
     // Pretty print the code for consistent formatting
-    let syntax_tree = syn::parse_file(&content)
+    let syntax_tree = parse_file_permissive(&content)
         .with_context(|| format!("Failed to parse file: {}", get_relative_path(file_path)))?;
     Ok(syntax_tree)
 }

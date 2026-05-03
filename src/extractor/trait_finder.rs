@@ -1,10 +1,28 @@
+use proc_macro2::TokenStream;
 use syn::{
-    File, ItemTrait,
+    File, Item, ItemTrait,
     visit::{self, Visit},
 };
 
-/// Find a trait in a parsed Rust file
-pub fn find_trait(parsed_file: &File, trait_name: &str) -> Option<ItemTrait> {
+use crate::const_trait::ItemTraitConst;
+
+#[derive(Clone)]
+pub enum TraitType {
+    Const(TokenStream),
+    Reg(ItemTrait),
+}
+
+impl TraitType {
+    pub fn item(self) -> Item {
+        match self {
+            TraitType::Const(trait_item) => Item::Verbatim(trait_item),
+            TraitType::Reg(trait_item) => Item::Trait(trait_item),
+        }
+    }
+}
+
+/// Find a trait in a parsed Rust file, handling both regular and const traits
+pub fn find_trait(parsed_file: &File, trait_name: &str) -> Option<TraitType> {
     let mut finder = TraitFinder::new(trait_name);
     finder.visit_file(parsed_file);
     finder.trait_item
@@ -13,7 +31,7 @@ pub fn find_trait(parsed_file: &File, trait_name: &str) -> Option<ItemTrait> {
 /// A visitor that finds a trait by name
 pub struct TraitFinder {
     trait_name: String,
-    trait_item: Option<ItemTrait>,
+    trait_item: Option<TraitType>,
 }
 
 impl TraitFinder {
@@ -26,12 +44,23 @@ impl TraitFinder {
 }
 
 impl<'ast> Visit<'ast> for TraitFinder {
-    fn visit_item_trait(&mut self, item_trait: &'ast ItemTrait) {
-        if item_trait.ident == self.trait_name {
-            self.trait_item = Some(item_trait.clone());
+    fn visit_item(&mut self, item: &'ast Item) {
+        match item {
+            Item::Trait(trait_item) => {
+                if trait_item.ident == self.trait_name {
+                    self.trait_item = Some(TraitType::Reg(trait_item.clone()));
+                }
+            }
+            Item::Verbatim(tokens) => {
+                if let Ok(trait_item) = syn::parse2::<ItemTraitConst>(tokens.clone()) {
+                    if trait_item.ident == self.trait_name {
+                        self.trait_item = Some(TraitType::Const(tokens.clone()));
+                    }
+                }
+            }
+            _ => {}
         }
 
-        // Continue visiting
-        visit::visit_item_trait(self, item_trait);
+        visit::visit_item(self, item);
     }
 }

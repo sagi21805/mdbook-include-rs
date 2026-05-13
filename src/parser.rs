@@ -13,6 +13,7 @@ use anyhow::{Context, Result};
 use proc_macro2::Span;
 use regex::{Captures, Regex};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::{env, fs};
 use syn::spanned::Spanned;
 use syn::token::{Enum, Impl, Struct, Trait};
@@ -339,6 +340,15 @@ fn process_extra(
     (hidden, visible)
 }
 
+fn get_rustc_path() -> PathBuf {
+    let output = Command::new("rustc")
+        .args(["--print", "sysroot"])
+        .output()
+        .unwrap();
+
+    let sysroot = String::from_utf8(output.stdout).unwrap();
+    PathBuf::from(sysroot.trim())
+}
 /// Process enum! directive
 fn process_directive<T>(
     base_dir: &Path,
@@ -352,7 +362,11 @@ fn process_directive<T>(
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("{} name is required", std::any::type_name::<T>()))?;
 
-    let absolute_path = base_dir.join(directive.file_path);
+    let absolute_path = if directive.file_path.starts_with("<rustc>") {
+        get_rustc_path().join(directive.file_path.strip_prefix("<rustc>/").unwrap())
+    } else {
+        base_dir.join(directive.file_path)
+    };
     let parsed_file = read_and_parse_file(&absolute_path)?;
 
     let (item, mut result_spans) = finder(&parsed_file, item_name)

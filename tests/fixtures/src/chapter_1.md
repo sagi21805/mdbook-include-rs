@@ -25,3 +25,8 @@ This chapter demonstrates the function_body preprocessor:
 ```rust
 #![trait!("test_file_book.rs", X)]
 ```
+
+
+```rust
+#![enum!("<rustc>/lib/rustlib/src/rust/library/proc_macro/src/lib.rs", TokenTree)]
+```

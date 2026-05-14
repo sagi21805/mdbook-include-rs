@@ -349,6 +349,22 @@ fn get_rustc_path() -> PathBuf {
     let sysroot = String::from_utf8(output.stdout).unwrap();
     PathBuf::from(sysroot.trim())
 }
+
+fn get_cratesio_path() -> PathBuf {
+    let base = home::cargo_home().unwrap().join("registry/src");
+    eprintln!("BASE: {:?}", base);
+    std::fs::read_dir(base)
+        .expect("Cannot find registry directory")
+        .next()
+        .expect("Directory has not entires")
+        .expect("Cannot find crates io direcotry")
+        .path()
+}
+
+fn get_github_path() -> PathBuf {
+    home::cargo_home().unwrap().join("git/checkouts")
+}
+
 /// Process enum! directive
 fn process_directive<T>(
     base_dir: &Path,
@@ -364,6 +380,10 @@ fn process_directive<T>(
 
     let absolute_path = if directive.file_path.starts_with("<rustc>") {
         get_rustc_path().join(directive.file_path.strip_prefix("<rustc>/").unwrap())
+    } else if directive.file_path.starts_with("<github>") {
+        get_github_path().join(directive.file_path.strip_prefix("<github>/").unwrap())
+    } else if directive.file_path.starts_with("<crateio>") {
+        get_cratesio_path().join(directive.file_path.strip_prefix("<crateio>/").unwrap())
     } else {
         base_dir.join(directive.file_path)
     };

@@ -299,7 +299,15 @@ fn process_include_rs_directive(
 /// Process source_file! directive
 fn process_source_file_directive(base_dir: &Path, directive: &str) -> Result<(String, PathBuf)> {
     let directive = parse_directive_args(directive)?;
-    let absolute_path = base_dir.join(directive.file_path);
+    let absolute_path = if directive.file_path.starts_with("<rustc>") {
+        get_rustc_path().join(directive.file_path.strip_prefix("<rustc>/").unwrap())
+    } else if directive.file_path.starts_with("<github>") {
+        get_github_path().join(directive.file_path.strip_prefix("<github>/").unwrap())
+    } else if directive.file_path.starts_with("<crateio>") {
+        get_cratesio_path().join(directive.file_path.strip_prefix("<crateio>/").unwrap())
+    } else {
+        base_dir.join(directive.file_path)
+    };
     let content = fs::read_to_string(&absolute_path)
         .with_context(|| format!("Failed to read file: {}", get_relative_path(&absolute_path)))?;
     Ok((content, absolute_path))

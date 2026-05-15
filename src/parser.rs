@@ -10,7 +10,6 @@ use crate::extractor::trait_finder::find_trait;
 use crate::formatter::{format_function_body, format_item};
 use crate::output::Output;
 use anyhow::{Context, Result};
-use proc_macro2::Span;
 use regex::{Captures, Regex};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -20,6 +19,11 @@ use syn::token::{Enum, Impl, Struct, Trait};
 use syn::{File, Item, ItemConst, ItemFn, ItemStatic};
 
 const DIRECTIVE_REGEX: &str = r"(?ms)^#!\[((?:source_file|static|const|function|struct|enum|trait|impl|impl_method|trait_impl|function_body)![\s\S]*?)\]$";
+
+pub struct Lines {
+    pub start: usize,
+    pub end: usize,
+}
 
 /// Process the markdown content to find and replace include-rs directives
 pub fn process_markdown(base_dir: &Path, source_path: &Path, content: &mut String) -> Result<()> {
@@ -62,7 +66,7 @@ pub fn process_directives(
     base_dir: &Path,
     source_path: &Path,
     content: &str,
-) -> Result<Vec<(PathBuf, Vec<Span>)>> {
+) -> Result<Vec<(PathBuf, Vec<Lines>)>> {
     // Changed return type to Vec<Span>
     let re = Regex::new(DIRECTIVE_REGEX)?;
 
@@ -138,7 +142,7 @@ pub(crate) fn get_relative_path(path: &Path) -> String {
 fn process_include_rs_directive(
     base_dir: &Path,
     directive: &str,
-) -> Result<(String, Option<PathBuf>, Vec<Span>)> {
+) -> Result<(String, Option<PathBuf>, Vec<Lines>)> {
     // Returns Option<PathBuf>
     let directive_name = if let Some(pos) = directive.find('!') {
         &directive[0..pos]
@@ -148,8 +152,19 @@ fn process_include_rs_directive(
 
     let (result, path, spans) = match directive_name {
         "source_file" => {
+            let item = parse_directive_args(directive)?
+                .item
+                .unwrap_or(String::from(""));
+            let lines: Lines = match item.splitn(2, ':').collect::<Vec<_>>().as_slice() {
+                [a, b] => Lines {
+                    start: a.parse().unwrap_or(0),
+                    end: b.parse().unwrap_or(0),
+                },
+                _ => Lines { start: 0, end: 0 }, // fallback
+            };
+
             let (content, path) = process_source_file_directive(base_dir, directive)?;
-            (content, Some(path), Vec::<Span>::new()) // Added explicit type hint
+            (content, Some(path), vec![lines])
         }
 
         "const" => process_directive::<ItemConst>(
@@ -219,8 +234,17 @@ fn process_include_rs_directive(
                 let trait_name = parts[0].trim();
                 let struct_name = parts[1].trim();
                 let (items, spans) = find_trait_impl(f, trait_name, struct_name);
+
+                let lines_span = spans
+                    .iter()
+                    .map(|s| Lines {
+                        start: s.start().line,
+                        end: s.end().line,
+                    })
+                    .collect::<Vec<_>>();
+
                 // TODO: good enough for book, but won't include all the currect string. The correct fix is to only use spans, and then at the end of processing include them directly from the file.
-                Some((items[0].clone().item(), spans))
+                Some((items[0].clone().item(), lines_span))
             },
             format_item,
         )
@@ -251,9 +275,17 @@ fn process_include_rs_directive(
 
                 let (_, spans) = find_impl_methods(f, struct_name, method_names);
 
+                let lines_span = spans
+                    .iter()
+                    .map(|s| Lines {
+                        start: s.start().line,
+                        end: s.end().line,
+                    })
+                    .collect::<Vec<_>>();
+
                 let new_impl = item_impl.clone();
                 // TODO: good enough for book, but won't include all the currect string. The correct fix is to only use spans, and then at the end of processing include them directly from the file.
-                Some((new_impl.item(), spans))
+                Some((new_impl.item(), lines_span))
             },
             format_item,
         )
@@ -352,7 +384,6 @@ fn get_rustc_path() -> PathBuf {
 
 fn get_cratesio_path() -> PathBuf {
     let base = home::cargo_home().unwrap().join("registry/src");
-    eprintln!("BASE: {:?}", base);
     std::fs::read_dir(base)
         .expect("Cannot find registry directory")
         .next()
@@ -369,9 +400,9 @@ fn get_github_path() -> PathBuf {
 fn process_directive<T>(
     base_dir: &Path,
     directive: &str,
-    finder: impl Fn(&File, &str) -> Option<(Item, Vec<Span>)>,
+    finder: impl Fn(&File, &str) -> Option<(Item, Vec<Lines>)>,
     formatter: impl Fn(&Item) -> String,
-) -> Result<(String, PathBuf, Vec<Span>)> {
+) -> Result<(String, PathBuf, Vec<Lines>)> {
     let directive = parse_directive_args(directive)?;
     let item_name = directive
         .item
@@ -394,7 +425,10 @@ fn process_directive<T>(
 
     // If the finder didn't provide specific spans, use the item's own span
     if result_spans.is_empty() {
-        result_spans.push(item.span());
+        result_spans.push(Lines {
+            start: item.span().start().line,
+            end: item.span().end().line,
+        });
     }
 
     let (hidden_deps, visible_deps) = process_extra(&parsed_file, &item, &directive.extra_items);

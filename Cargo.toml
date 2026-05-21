@@ -10,7 +10,7 @@ keywords = ["mdbook", "preprocessor", "include", "doc", "syntax"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
-mdbook = "0.4.47"
+mdbook-preprocessor = "0.5.3"
 syn = { version = "2.0.100", features = ["full", "parsing", "visit", "extra-traits"] }
 proc-macro2 = { version = "1.0.94", features = ["span-locations"] }
 clap = { version = "4.5.32", features = ["derive"] }

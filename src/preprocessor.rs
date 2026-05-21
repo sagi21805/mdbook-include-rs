@@ -1,7 +1,8 @@
 use anyhow::Result;
-use mdbook::book::{Book, BookItem};
-use mdbook::preprocess::{Preprocessor, PreprocessorContext};
+use mdbook_preprocessor::book::{Book, BookItem};
+use mdbook_preprocessor::{Preprocessor, PreprocessorContext};
 use toml::Value;
+use toml::value::Table;
 
 use crate::parser::process_markdown;
 
@@ -14,7 +15,8 @@ impl Preprocessor for IncludeRsPreprocessor {
     }
 
     fn run(&self, ctx: &PreprocessorContext, mut book: Book) -> Result<Book> {
-        let config_section = ctx.config.get_preprocessor(self.name());
+        let config_section: Option<Table> =
+            ctx.config.get(&format!("preprocessor.{}", self.name()))?;
         // Get global base_dir from config if provided, otherwise set to None
         let global_base_dir = if let Some(config) = config_section {
             if let Some(Value::String(dir)) = config.get("base-dir") {
@@ -62,8 +64,8 @@ impl Preprocessor for IncludeRsPreprocessor {
         Ok(book)
     }
 
-    fn supports_renderer(&self, _renderer: &str) -> bool {
+    fn supports_renderer(&self, _renderer: &str) -> Result<bool, anyhow::Error> {
         // This preprocessor supports all renderers
-        true
+        Ok(true)
     }
 }
